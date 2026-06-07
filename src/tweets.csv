@@ -1,104 +1,104 @@
 id_str,flagged,reason
-1000000000000000001,True,"The tweet is vague and low-effort, adding no specific value beyond a common complaint."
-1000000000000000002,True,The tweet is a retweet with no original thought added.
+1000000000000000001,False,
+1000000000000000002,False,
 1000000000000000003,False,
 1000000000000000004,False,
 1000000000000000005,False,
-1000000000000000006,True,"This is a vague, low-effort tweet that adds no significant value or insight."
-1000000000000000007,True,"This makes a strong, subjective claim about a specific technology, which can be considered a hot take."
-1000000000000000008,True,"This explicitly states it's a ""hot take"" and makes a controversial claim."
+1000000000000000006,False,
+1000000000000000007,False,
+1000000000000000008,False,
 1000000000000000009,False,
-1000000000000000010,True,"This makes a strong, prescriptive claim about a professional practice, which could be considered a hot take."
+1000000000000000010,False,
 1000000000000000011,False,
 1000000000000000012,False,
-1000000000000000013,True,This is a retweet with no original thought added.
+1000000000000000013,False,
 1000000000000000014,False,
 1000000000000000015,False,
 1000000000000000016,False,
 1000000000000000017,False,
-1000000000000000018,True,"This makes a strong, subjective claim about a specific technology, which can be considered a hot take."
-1000000000000000019,True,This tweet complains about a specific tool in a bitter and unprofessional way.
-1000000000000000020,True,"This is a vague, low-effort tweet that adds no significant value or insight."
+1000000000000000018,False,
+1000000000000000019,False,
+1000000000000000020,False,
 1000000000000000021,False,
-1000000000000000022,True,This is a retweet with no original thought added.
-1000000000000000023,True,"This makes a strong, subjective claim about a specific technology, which can be considered a hot take."
+1000000000000000022,False,
+1000000000000000023,False,
 1000000000000000024,False,
 1000000000000000025,False,
 1000000000000000026,False,
-1000000000000000027,True,"This explicitly states it's a ""hot take"" and makes a controversial claim."
-1000000000000000028,True,This is a retweet with no original thought added.
-1000000000000000029,True,The tweet is a retweet with no original thought added.
-1000000000000000030,True,The tweet makes a hot take or controversial claim that could age poorly.
-1000000000000000031,True,The tweet expresses frustration or negativity about work in a sarcastic and unprofessional way.
+1000000000000000027,False,
+1000000000000000028,False,
+1000000000000000029,False,
+1000000000000000030,False,
+1000000000000000031,False,
 1000000000000000032,False,
-1000000000000000033,True,"The tweet is vague, low-effort, and adds no value."
-1000000000000000034,True,The tweet complains about a specific technology in a bitter and unprofessional way.
+1000000000000000033,False,
+1000000000000000034,False,
 1000000000000000035,False,
-1000000000000000036,True,The tweet is a retweet with no original thought added.
-1000000000000000037,True,The tweet is a retweet with no original thought added.
-1000000000000000038,True,The tweet makes an explicit hot take or controversial claim.
+1000000000000000036,False,
+1000000000000000037,False,
+1000000000000000038,False,
 1000000000000000039,False,
 1000000000000000040,False,
 1000000000000000041,False,
 1000000000000000042,False,
-1000000000000000043,True,The tweet complains about a specific technology in a way that sounds unprofessional and is a hot take.
+1000000000000000043,False,
 1000000000000000044,False,
-1000000000000000045,True,The tweet is a retweet with no original thought added.
-1000000000000000046,True,The tweet is a retweet with no original thought added.
-1000000000000000047,True,The tweet is a retweet with no original thought added.
-1000000000000000048,True,The tweet complains about a specific technology in a way that sounds unprofessional and is a hot take.
+1000000000000000045,False,
+1000000000000000046,False,
+1000000000000000047,False,
+1000000000000000048,False,
 1000000000000000049,False,
 1000000000000000050,False,
-1000000000000000051,True,The tweet expresses frustration or negativity about work in a sarcastic and unprofessional way.
-1000000000000000052,True,"The tweet is vague, low-effort, and adds no value."
+1000000000000000051,False,
+1000000000000000052,False,
 1000000000000000053,False,
-1000000000000000054,True,Complains about a specific technology in a frustrated and unprofessional tone.
+1000000000000000054,False,
 1000000000000000055,False,
 1000000000000000056,False,
-1000000000000000057,True,Expresses frustration about a common development task in a potentially unprofessional way.
+1000000000000000057,False,
 1000000000000000058,False,
-1000000000000000059,True,Is a retweet with no original thought added.
-1000000000000000060,True,Makes a hot take or controversial claim about specific technologies.
-1000000000000000061,True,Is a retweet with no original thought added.
-1000000000000000062,True,Makes a hot take or controversial claim about specific technologies.
+1000000000000000059,False,
+1000000000000000060,False,
+1000000000000000061,False,
+1000000000000000062,False,
 1000000000000000063,False,
 1000000000000000064,False,
 1000000000000000065,False,
-1000000000000000066,True,Makes a hot take or controversial claim about a common development practice.
-1000000000000000067,True,Complains about a specific technology in a frustrated and unprofessional tone.
+1000000000000000066,False,
+1000000000000000067,False,
 1000000000000000068,False,
-1000000000000000069,True,Expresses frustration about work in a sarcastic and unprofessional tone.
-1000000000000000070,True,Complains about a specific technology in a frustrated and unprofessional tone.
+1000000000000000069,False,
+1000000000000000070,False,
 1000000000000000071,False,
-1000000000000000072,True,Is a retweet with no original thought added.
-1000000000000000073,True,Is a retweet with no original thought added.
-1000000000000000074,True,Is a retweet with no original thought added.
-1000000000000000075,True,Is a retweet with no original thought added.
-1000000000000000076,True,Complains about a specific technology in a frustrated and unprofessional tone.
-1000000000000000077,True,Makes an explicit hot take and controversial claim.
+1000000000000000072,False,
+1000000000000000073,False,
+1000000000000000074,False,
+1000000000000000075,False,
+1000000000000000076,False,
+1000000000000000077,False,
 1000000000000000078,False,
-1000000000000000079,True,This is a retweet with no original thought added.
+1000000000000000079,False,
 1000000000000000080,False,
 1000000000000000081,False,
-1000000000000000082,True,This tweet makes a hot take.
-1000000000000000083,True,This is a retweet with no original thought added.
+1000000000000000082,False,
+1000000000000000083,False,
 1000000000000000084,False,
 1000000000000000085,False,
-1000000000000000086,True,This is a retweet with no original thought added.
-1000000000000000087,True,This is a retweet with no original thought added.
-1000000000000000088,True,"This tweet is vague, low-effort, and adds no specific value or insight."
-1000000000000000089,True,This tweet makes a hot take.
+1000000000000000086,False,
+1000000000000000087,False,
+1000000000000000088,False,
+1000000000000000089,False,
 1000000000000000090,False,
-1000000000000000091,True,This tweet makes a subjective and potentially controversial claim.
+1000000000000000091,False,
 1000000000000000092,False,
 1000000000000000093,False,
 1000000000000000094,False,
 1000000000000000095,False,
 1000000000000000096,False,
-1000000000000000097,True,This is a retweet with no original thought added.
-1000000000000000098,True,This is a retweet with no original thought added.
-1000000000000000099,True,This is a retweet with no original thought added.
-1000000000000000100,True,This is a retweet with no original thought added.
+1000000000000000097,False,
+1000000000000000098,False,
+1000000000000000099,False,
+1000000000000000100,False,
 1000000000000000101,False,
 1000000000000000102,False,
 1000000000000000103,False,

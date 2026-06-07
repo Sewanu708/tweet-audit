@@ -1,4 +1,5 @@
 from google import genai
+
 from settings import env
 import asyncio
 from google.api_core import retry_async
@@ -55,7 +56,9 @@ class GeminiOutput(BaseModel):
         description="Reason for flagging, null if not flagged"
     )
 
-client = genai.Client(api_key=env['GEMINI_API_KEY'])
+
+def config_gemini_client(api_key:str):
+    return genai.Client(api_key=api_key)
 
 def if_genai_transient_error(exception):
     return isinstance(exception, errors.APIError) and exception.code in {408, 429, 500, 502, 503, 504}
@@ -67,7 +70,7 @@ def if_genai_transient_error(exception):
     multiplier=2.0,
     timeout=600,
 )
-async def gemini_client(data:dict)->List[GeminiOutput]:
+async def gemini_client(data:dict,client:genai.Client)->List[GeminiOutput]:
         response = await client.aio.models.generate_content(
         model="gemini-2.5-flash" ,
         contents=f"Audit these tweets:\n{json.dumps(data)}",
@@ -75,10 +78,10 @@ async def gemini_client(data:dict)->List[GeminiOutput]:
             system_instruction=system_prompt,
             response_json_schema={
                 "type":"array",
-                "schema":GeminiOutput.model_json_schema()
+                "items":GeminiOutput.model_json_schema()
             }
             )
         )
 
-        return response.text
+        return json.loads(response.text)
     
