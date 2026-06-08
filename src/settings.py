@@ -22,9 +22,9 @@ def load_config(path)->dict:
 
 
 def validate_config(data:dict):
-    if data.get("GEMINI_API_KEY", None) is None:
-        logger.error(f"GEMINI_API_KEY not found in your config.json:{data}",exc_info=False)
-        raise Exception("GEMINI_API_KEY not found in your config.json")
+    if data.get("database_url", None) is None:
+        logger.error(f"database_url not found in your config.json:{data}", exc_info=False)
+        raise Exception("database_url not found in your config.json")
     return data
 
 
