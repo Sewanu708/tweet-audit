@@ -1,7 +1,0 @@
- {
-     "app_name":"ChenChairs", 
-     "version":"1.0.1", 
-    "database_url" :"sqlite:///database.db",
-    "GEMINI_API_KEY":"AIzaSyDy8x7c_4kmKyQJih1WUrS-wlZnqToM-T8"
-
-}

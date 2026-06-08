@@ -42,8 +42,8 @@ async def work():
     client = config_gemini_client(gemini_api_key)
 
     grouped_batches = []
-    for i in range(0, len(output), 100):
-        grouped_batches.append(output[i:i+100])
+    for i in range(0, len(output), 1000):
+        grouped_batches.append(output[i:i+1000])
 
     logger.info(f"Processing {len(output)} tweets across {len(grouped_batches)} batches")
 
@@ -70,8 +70,8 @@ async def work():
         main_p = [tweet for tweet in batch if tweet["tweet"]['id_str'] in to_be_processed_set]
 
         gem_group_batches = []
-        for i in range(0, len(main_p), 25):
-            gem_group_batches.append(main_p[i:i+25])
+        for i in range(0, len(main_p), 100):
+            gem_group_batches.append(main_p[i:i+100])
 
         if not gem_group_batches:
             logger.info(f"Batch {batch_index + 1}: nothing new to process, skipping Gemini")
