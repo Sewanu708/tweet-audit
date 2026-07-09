@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 import zipfile
-from logger import logger
+from .logger import logger
 
 def resolve_path(filename, current_dir: str | None = None, max_recall: int = 3):
     if max_recall == 0:
@@ -27,7 +27,7 @@ def load_data_from_content(filepath: str | Path, prefix_to_strip: str | None = N
     if str(filepath).endswith(".zip"):
         logger.info(f"Processing ZIP archive: {filepath}")
         if not zipfile.is_zipfile(filepath):
-            raise ValueError("Corrupted or invalid ZIP file.")
+            raise ValueError(f"Corrupted or invalid ZIP file at path: {filepath}")
         with zipfile.ZipFile(filepath) as z_file:
             target_path = next((path for path in z_file.namelist() if path.endswith("data/tweets.js") or path == "tweets.js"), None)
             if not target_path:
@@ -65,27 +65,6 @@ def fetch_data(path, prefix_to_strip: str | None = None):
 
     logger.info(f"Loading data from {resolved}")
     with open(resolved, mode="r", encoding="utf-8") as json_file:
-        data = json_file.read()
-        if prefix_to_strip:
-            logger.info(f"Stripping prefix: '{prefix_to_strip}'")
-            data = data.replace(prefix_to_strip, "")
-        
-        try:
-            data = json.loads(data)
-            logger.info(f"Loaded {len(data)} records successfully")
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
-            raise ValueError(f"Error parsing file: {e}")
-
-    return data
-
-
-def load_file(file, prefix_to_strip: str | None = None):
-    "This fetches all data from tweets.js file or similar"
-    # resolved = resolve_path(path)
-
-    logger.info(f"Loading data from {path}")
-    with open(path, mode="r", encoding="utf-8") as json_file:
         data = json_file.read()
         if prefix_to_strip:
             logger.info(f"Stripping prefix: '{prefix_to_strip}'")

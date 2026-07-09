@@ -1,5 +1,5 @@
 import json
-from logger import logger
+from .logger import logger
 from pathlib import Path
 import os
 
@@ -32,5 +32,7 @@ def validate_config(data:dict):
 
 
 
-path = Path.cwd().parent / 'config.json'
+path = Path.cwd() / 'config.json'
+# Find config.json relative to this file's location (src/), by going up one level.
+path = Path(__file__).resolve().parent.parent / 'config.json'
 env=validate_config(load_config(path))

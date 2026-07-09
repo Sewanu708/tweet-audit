@@ -2,12 +2,10 @@ import json
 import csv
 import asyncio
 from logger import logger
-from gemini_client import client, gemini_client
-from sqlmodel import select, Session
-from db_config import engine, Idemptency
-import redis.asyncio as redis
-
-r = redis.Redis(host='localhost', port=6379, decode_responses=True)
+from relegated.gemini_client import client, gemini_client
+from sqlmodel import Session, select
+from db_config import engine, Idemptency, Tweets, Jobs, Status
+import uuid
 
 rate_limit_lock = asyncio.Semaphore(3)
 
@@ -114,22 +112,4 @@ async def work(content: str, job_id:str, prefix_to_strip: str | None = None, ):
 
         logger.info("Audit complete")
         await job_r.publish(job_id, "done")
-
-
-async def stream_job(job_id):
-    yield "'id_str','flagged','reason'\n"
-    pubsub = r.pubsub()
-    await pubsub.subscribe(job_id)
-
-    async for message in pubsub.listen():
-        if message['type'] != 'message':
-            continue
-
-        if message['data'] == 'done':
-            return
-
-        batch = json.loads(message['data'])
-        for row in batch:
-            yield f"{row['id_str']},{row['flagged']},{row['reason']}\n"
-
 

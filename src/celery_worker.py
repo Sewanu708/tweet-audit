@@ -1,20 +1,18 @@
 import redis
 import json
-import time
 from threading import Lock
 from celery import Celery, shared_task
-from db_config import engine, Jobs, Tweets
+from .db_config import engine, Jobs, Tweets, Status, TweetStatus
 from sqlmodel import select, Session, SQLModel
-from loader import load_data_from_content
-from logger import logger
-from agent import AgentDownStream
-from resilience import RateLimiter, CircuitBreaker, TokenBucket, DailyTokenBucket
-from gemini_client import system_prompt, GeminiOutput
-from settings import env
+from .loader import load_data_from_content
+from .logger import logger
+from .agent import AgentDownStream
+from .resilience import RateLimiter, CircuitBreaker, TokenBucket, DailyTokenBucket
+from .api_utils import system_prompt, GeminiOutput
+from .settings import env
 import uuid
-from db_config import Status, TweetStatus # Import Enums
 
-celery = Celery(
+celery_client = Celery(
     "tasks",
     broker="redis://localhost:6379/0",
     backend="redis://localhost:6379/0"
@@ -38,6 +36,7 @@ def contains_filter(text):
 
 @shared_task()
 def agent_review(job_id:str):
+    """Celery task to review tweets using a resilient agent to call the Gemini API."""
     job_id_uuid = uuid.UUID(job_id)
     rpm_bucket = TokenBucket(max_tokens=3, refill_rate=1, interval=60, lock=Lock)
     # Daily limit: 10,000 requests per day
@@ -53,10 +52,9 @@ def agent_review(job_id:str):
         api_key=env["gemini_api_key"]
     )
     
-    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
     with Session(engine) as db:
-        pending_tweets = db.exec(select(Tweets).where(Tweets.id == job_id_uuid, Tweets.status == TweetStatus.pending_llm))
         pending_tweets = db.exec(
             select(Tweets).where(Tweets.job_id == job_id_uuid, Tweets.status == TweetStatus.pending_llm)
         ).all()
@@ -64,51 +62,56 @@ def agent_review(job_id:str):
         if not pending_tweets:
             logger.info(f"Job {job_id}: No more tweets to process with AI. Marking job as complete.")
             job = db.get(Jobs, job_id_uuid)
-            if job:
+            if job and job.status != Status.completed:
                 job.status = Status.completed
                 db.add(job)
                 db.commit()
             return
     
-    logger.info(f"Job {job_id}: Found {len(pending_tweets)} tweets to review with Gemini.")
+        logger.info(f"Job {job_id}: Found {len(pending_tweets)} tweets to review with Gemini.")
         
-    gemini_batches = []
-    for i in range(0, len(pending_tweets), 100):
-        gemini_batches.append(pending_tweets[i:i+100])
+        gemini_batches = []
+        for i in range(0, len(pending_tweets), 100):
+            gemini_batches.append(pending_tweets[i:i+100])
 
-    
-    for i, batch in enumerate(gemini_batches):
-        logger.info(f"Job {job_id}: Processing Gemini batch {i+1}/{len(gemini_batches)}")
-        
-        # Prepare payload for Gemini API
-        tweet_contents = [{"id_str": t.tweet_id, "full_text": t.content} for t in batch]
-        payload = {
-            "contents": [{"parts": [{"text": f"{system_prompt}\nAudit these tweets:\n{json.dumps(tweet_contents)}"}]}],
-            "generationConfig": {
-                "response_mime_type": "application/json",
-                "response_schema": {"type": "array", "items": GeminiOutput.model_json_schema()}
-            }
-        }
-
-        try:
-            response = ai_agent.call(url=gemini_url, payload=payload)
-            results = response.data['candidates'][0]['content']['parts'][0]['text']
-            gemini_responses = json.loads(results)
-
-            for res in gemini_responses:
-                tweet_to_update = db.exec(select(Tweets).where(Tweets.tweet_id == res['id_str'], Tweets.job_id == job_id_uuid)).first()
-                if tweet_to_update:
-                    tweet_to_update.flagged = res['flagged']
-                    tweet_to_update.reason = res['reason']
-                    tweet_to_update.status = TweetStatus.flagged_llm if res['flagged'] else TweetStatus.safe
-                    db.add(tweet_to_update)
+        for i, batch in enumerate(gemini_batches):
+            logger.info(f"Job {job_id}: Processing Gemini batch {i+1}/{len(gemini_batches)}")
             
-            db.commit()
-            logger.info(f"Job {job_id}: Successfully processed and saved Gemini batch {i+1}.")
+            # Prepare payload for Gemini API
+            tweet_contents = [{"id_str": t.tweet_id, "full_text": t.content} for t in batch]
+            payload = {
+                "contents": [{"parts": [{"text": f"{system_prompt}\nAudit these tweets:\n{json.dumps(tweet_contents)}"}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": {"type": "array", "items": GeminiOutput.model_json_schema()}
+                }
+            }
 
-        except Exception as e:
-            logger.error(f"Job {job_id}: Failed to process Gemini batch {i+1}. Error: {e}", exc_info=True)
-            # Optionally, you could add logic here to mark the job as failed.
+            try:
+                response = ai_agent.call(url=gemini_url, payload=payload)
+                logger.info(response)
+                if not response.success:
+                    raise ValueError(f"API call failed with response code {response.response_code}: {response.err_message}")
+                results = response.data['candidates'][0]['content']['parts'][0]['text']
+                gemini_responses = json.loads(results)
+
+                # Efficiently map tweets in the batch by their ID for quick updates
+                batch_tweets_map = {t.tweet_id: t for t in batch}
+
+                for res in gemini_responses:
+                    tweet_to_update = batch_tweets_map.get(res['id_str'])
+                    if tweet_to_update:
+                        tweet_to_update.flagged = res['flagged']
+                        tweet_to_update.reason = res['reason']
+                        tweet_to_update.status = TweetStatus.flagged_llm if res['flagged'] else TweetStatus.safe
+                        db.add(tweet_to_update)
+                
+                db.commit()
+                logger.info(f"Job {job_id}: Successfully processed and saved Gemini batch {i+1}.")
+
+            except Exception as e:
+                logger.error(f"Job {job_id}: Failed to process Gemini batch {i+1}. Error: {e}", exc_info=True)
+                # Optionally, you could add logic here to mark the job as failed.
 
 
 

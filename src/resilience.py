@@ -4,7 +4,7 @@ from threading import Lock
 from datetime import datetime, timedelta, timezone
 from fastapi import status, HTTPException
 from functools import wraps
-from logger import logger
+from .logger import logger
 import httpx
 
 

@@ -1,17 +1,12 @@
 import uvicorn
 from fastapi import FastAPI, UploadFile, Depends
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from analyze import stream_job
-from logger import logger
-from celery_worker import parse_analyze_path
-from sqlmodel import Session
-from db_config import get_db, Jobs
-from api_utils import upload_archive
-
-# The resilience patterns (RateLimiter, CircuitBreaker, etc.) and the agent logic
-# have been moved to resilience.py and agent.py respectively.
-# They are not directly used in this file anymore but are fundamental for the worker tasks.
+from .celery_worker import parse_analyze_path
+from sqlmodel import Session, select
+from .db_config import engine, get_db, Tweets, Jobs, TweetStatus
+from .api_utils import upload_archive
+import uuid
+from fastapi import HTTPException
 
 app = FastAPI(title="Tweets Audit API")
 
@@ -25,23 +20,31 @@ app.add_middleware(
 @app.post("/upload")
 async def upload_data(file: UploadFile, db: Session = Depends(get_db),):
     job_id, file_path = await upload_archive(file)
+    job_id_uuid = uuid.UUID(job_id)
     
-    # Create and save the initial job record
-    new_job = Jobs(id=job_id)
+    new_job = Jobs(id=job_id_uuid)
     db.add(new_job)
     db.commit()
 
-    # Delegate the heavy lifting to a background task
-    parse_analyze_path.delay(job_id=str(job_id), file_path=file_path)
+    parse_analyze_path.delay(job_id=job_id, file_path=file_path)
     return {"status": "queued", "task_id": job_id}
 
 
-@app.get("/{job_id}/stream")
-async def stream_csv(job_id: str):
-    return StreamingResponse(
-        content=stream_job(job_id),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="tweet_analysis.csv"'})
+@app.get("/{job_id}/processed")
+def stream_job(job_id:str):
+    job_id_uuid = uuid.UUID(job_id)
+    with Session(engine) as session:
+        job = session.get(Jobs, job_id_uuid)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found.")
+
+        tweets = session.exec(select(Tweets).where(Tweets.job_id == job_id_uuid, Tweets.status != TweetStatus.pending_llm )).all()
+        
+        results = [
+            {"id_str": t.tweet_id, "flagged": t.flagged, "reason": t.reason}
+            for t in tweets
+        ]
+        return {"status": job.status.value, "results": tweets}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host='0.0.0.0', port=8001, reload=True)
+    uvicorn.run("src.main:app", host='0.0.0.0', port=8001, reload=True, reload_dirs=["src"])
