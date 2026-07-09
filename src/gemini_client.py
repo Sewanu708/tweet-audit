@@ -60,6 +60,8 @@ class GeminiOutput(BaseModel):
 def config_gemini_client(api_key:str):
     return genai.Client(api_key=api_key)
 
+client = config_gemini_client(env["gemini_api_key"])
+
 def if_genai_transient_error(exception):
     return isinstance(exception, errors.APIError) and exception.code in {408, 429, 500, 502, 503, 504}
 

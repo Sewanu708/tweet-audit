@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tweet Audit — Demo</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #16202a;
+      --border: #2f3b47;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --accent: #1d9bf0;
+      --flag: #f4212e;
+      --ok: #00ba7c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+    .wrap { width: 100%; max-width: 820px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      background: #0f1419;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .row { display: flex; gap: 12px; align-items: center; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 9999px;
+      padding: 10px 22px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { font-size: 13px; color: var(--muted); margin-left: auto; }
+    .status.err { color: var(--flag); }
+    .status.ok { color: var(--ok); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+    .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; }
+    .badge.flag { background: rgba(244,33,46,0.15); color: var(--flag); }
+    .badge.clean { background: rgba(0,186,124,0.15); color: var(--ok); }
+    .id { font-family: ui-monospace, monospace; color: var(--muted); }
+    .count { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+    .tablewrap { max-height: 460px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+    .small { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Tweet Audit</h1>
+    <p class="sub">Upload your Twitter/X export (<code>.zip</code> or <code>tweets.js</code>) and stream the audit results.</p>
+
+    <div class="panel">
+      <label for="api">API base URL</label>
+      <input type="text" id="api" value="http://localhost:8001" />
+
+      <label for="file">Export file (.zip or .js)</label>
+      <input type="file" id="file" accept=".zip,.js" />
+
+      <label for="prefix">Prefix to strip (optional)</label>
+      <input type="text" id="prefix" placeholder='e.g. window.YTD.tweets.part0 = ' />
+
+      <div class="row">
+        <button id="go">Upload &amp; audit</button>
+        <span class="status" id="status">Idle</span>
+      </div>
+    </div>
+
+    <div class="panel" id="results" style="display:none;">
+      <div class="count" id="count">Waiting for results…</div>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th style="width:180px;">Tweet ID</th><th style="width:90px;">Verdict</th><th>Reason</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const goBtn = $("go");
+    const statusEl = $("status");
+
+    function setStatus(msg, kind = "") {
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (kind ? " " + kind : "");
+    }
+
+    goBtn.addEventListener("click", async () => {
+      const base = $("api").value.replace(/\/+$/, "");
+      const fileInput = $("file");
+      const prefix = $("prefix").value;
+
+      if (!fileInput.files.length) {
+        setStatus("Pick a file first", "err");
+        return;
+      }
+
+      goBtn.disabled = true;
+      $("rows").innerHTML = "";
+      $("results").style.display = "none";
+      setStatus("Uploading…");
+
+      try {
+        // 1. Upload the export file.
+        const form = new FormData();
+        form.append("file", fileInput.files[0]);
+
+        let url = base + "/upload";
+        if (prefix) url += "?prefix_to_strip=" + encodeURIComponent(prefix);
+
+        const res = await fetch(url, { method: "POST", body: form });
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({}));
+          throw new Error(detail.detail || `Upload failed (${res.status})`);
+        }
+
+        const { task_id } = await res.json();
+        setStatus("Queued — job " + task_id, "ok");
+
+        // 2. Stream the CSV results as they are produced.
+        // await streamResults(base, task_id);
+      } catch (err) {
+        setStatus(err.message, "err");
+      } finally {
+        goBtn.disabled = false;
+      }
+    });
+
+    async function streamResults(base, taskId) {
+      $("results").style.display = "block";
+      const res = await fetch(base + "/" + taskId + "/stream");
+      if (!res.ok) {
+        $("count").textContent = "";
+        setStatus(
+          "Stream endpoint returned " + res.status +
+          " — is /{job_id}/stream enabled on the API?",
+          "err"
+        );
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let total = 0;
+      let flagged = 0;
+      let firstLine = true;
+
+      const updateCount = () =>
+        ($("count").textContent = `${total} tweets audited · ${flagged} flagged`);
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep the incomplete trailing line
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          if (firstLine) { firstLine = false; continue; } // skip CSV header
+          const { id, verdict, reason } = parseCsvLine(line);
+          appendRow(id, verdict, reason);
+          total++;
+          if (verdict === "True") flagged++;
+        }
+        updateCount();
+      }
+      setStatus("Done — " + total + " tweets audited", "ok");
+      updateCount();
+    }
+
+    // The stream emits "id_str,flagged,reason" — reason may be empty/None.
+    function parseCsvLine(line) {
+      const first = line.indexOf(",");
+      const second = line.indexOf(",", first + 1);
+      return {
+        id: line.slice(0, first),
+        verdict: line.slice(first + 1, second),
+        reason: line.slice(second + 1),
+      };
+    }
+
+    function appendRow(id, verdict, reason) {
+      const flagged = verdict === "True";
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td class="id">${escapeHtml(id)}</td>` +
+        `<td><span class="badge ${flagged ? "flag" : "clean"}">${flagged ? "FLAG" : "OK"}</span></td>` +
+        `<td>${reason && reason !== "None" ? escapeHtml(reason) : '<span class="small">—</span>'}</td>`;
+      $("rows").appendChild(tr);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+      );
+    }
+  </script>
+</body>
+</html>

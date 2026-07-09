@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tweets Audit</title>
+  <style>
+    body { font-family: monospace; max-width: 720px; margin: 60px auto; padding: 0 20px; background: #0f0f0f; color: #e0e0e0; }
+    h1 { font-size: 1.2rem; color: #fff; margin-bottom: 24px; }
+    label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 4px; }
+    input[type="file"], input[type="text"] {
+      width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333;
+      color: #e0e0e0; padding: 8px 10px; border-radius: 4px; font-family: monospace; font-size: 0.85rem;
+    }
+    .field { margin-bottom: 16px; }
+    button {
+      background: #2563eb; color: #fff; border: none; padding: 9px 20px;
+      border-radius: 4px; font-family: monospace; cursor: pointer; font-size: 0.85rem;
+    }
+    button:disabled { background: #333; color: #666; cursor: not-allowed; }
+    #status { margin-top: 20px; font-size: 0.8rem; color: #888; }
+    #status span { color: #4ade80; }
+    #status .err { color: #f87171; }
+    #output {
+      margin-top: 16px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px;
+      padding: 12px; max-height: 400px; overflow-y: auto; font-size: 0.78rem; line-height: 1.6;
+      white-space: pre; display: none;
+    }
+    #download { display: none; margin-top: 12px; }
+    #download a {
+      color: #60a5fa; text-decoration: none; font-size: 0.8rem;
+    }
+    #download a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Tweets Audit</h1>
+
+  <div class="field">
+    <label>tweets.js file</label>
+    <input type="file" id="fileInput" accept=".js,.json" />
+  </div>
+
+  <div class="field">
+    <label>Prefix to strip (optional — e.g. <code>window.YTD.tweets.part0 = </code>)</label>
+    <input type="text" id="prefix" placeholder="leave blank if not needed" />
+  </div>
+
+  <button id="submitBtn">Run audit</button>
+
+  <div id="status"></div>
+  <div id="output"></div>
+  <div id="download"></div>
+
+  <script>
+    const BASE = 'http://localhost:8001';
+    const btn = document.getElementById('submitBtn');
+    const statusEl = document.getElementById('status');
+    const outputEl = document.getElementById('output');
+    const downloadEl = document.getElementById('download');
+
+    function setStatus(msg, isError = false) {
+      statusEl.innerHTML = isError
+        ? `<span class="err">${msg}</span>`
+        : `<span>${msg}</span>`;
+    }
+
+    btn.addEventListener('click', async () => {
+      const file = document.getElementById('fileInput').files[0];
+      const prefix = document.getElementById('prefix').value.trim();
+
+      if (!file) { setStatus('Select a file first.', true); return; }
+
+      btn.disabled = true;
+      outputEl.style.display = 'none';
+      outputEl.textContent = '';
+      downloadEl.style.display = 'none';
+      setStatus('Uploading...');
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const url = prefix
+        ? `${BASE}/upload?prefix_to_strip=${encodeURIComponent(prefix)}`
+        : `${BASE}/upload`;
+
+      let taskId;
+      try {
+        const res = await fetch(url, { method: 'POST', body: formData });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(err.detail ?? res.statusText);
+        }
+        const data = await res.json();
+        taskId = data.task_id;
+      } catch (e) {
+        setStatus(`Upload failed: ${e.message}`, true);
+        btn.disabled = false;
+        return;
+      }
+
+      setStatus(`Queued — job <span>${taskId}</span>. Streaming results...`);
+      outputEl.style.display = 'block';
+
+      const rows = [];
+      try {
+        const stream = await fetch(`${BASE}/${taskId}/stream`);
+        const reader = stream.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          outputEl.textContent += chunk;
+          outputEl.scrollTop = outputEl.scrollHeight;
+          rows.push(chunk);
+        }
+      } catch (e) {
+        setStatus(`Stream error: ${e.message}`, true);
+        btn.disabled = false;
+        return;
+      }
+
+      setStatus(`Done — job <span>${taskId}</span>`);
+
+      const blob = new Blob(rows, { type: 'text/csv' });
+      const href = URL.createObjectURL(blob);
+      downloadEl.innerHTML = `<a href="${href}" download="tweet_analysis.csv">Download CSV</a>`;
+      downloadEl.style.display = 'block';
+      btn.disabled = false;
+    });
+  </script>
+</body>
+</html>

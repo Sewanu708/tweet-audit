@@ -25,6 +25,9 @@ def validate_config(data:dict):
     if data.get("database_url", None) is None:
         logger.error(f"database_url not found in your config.json:{data}", exc_info=False)
         raise Exception("database_url not found in your config.json")
+    if data.get("gemini_api_key", None) is None:
+        logger.error(f"gemini_api_key not found in your config.json:{data}", exc_info=False)
+        raise Exception("gemini_api_key not found in your config.json")
     return data
 
 
