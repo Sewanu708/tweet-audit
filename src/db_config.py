@@ -7,10 +7,10 @@ from typing import Any
 from datetime import datetime
 import uuid
 
-# Add the 'src' directory to Python path
-src_dir = Path(__file__).resolve().parent
-if str(src_dir) not in sys.path:
-    sys.path.insert(0, str(src_dir))
+# # Add the 'src' directory to Python path
+# src_dir = Path(__file__).resolve().parent
+# if str(src_dir) not in sys.path:
+#     sys.path.insert(0, str(src_dir))
 
 from .settings import env
 
@@ -19,12 +19,6 @@ engine = create_engine(env['database_url'])
 def get_db():
     with Session(engine) as session:
         yield session
-
-
-
-class Idemptency(SQLModel, table=True):
-    response: dict[str,Any] = Field(default={}, sa_type=JSON)
-    tweet_id:str = Field(primary_key=True)
 
 class Status(str, Enum):
     pending = "pending"
@@ -62,10 +56,6 @@ class Tweets (SQLModel, table=True):
     reason:str|None = None 
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
-
-
-
-
 
 
 SQLModel.metadata.create_all(engine)

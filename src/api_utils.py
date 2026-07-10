@@ -3,8 +3,6 @@ import os
 import zipfile
 import aiofiles
 from pydantic import BaseModel, Field
-from typing import List, Optional
-import json
 from fastapi import UploadFile, HTTPException
 
 

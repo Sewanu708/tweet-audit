@@ -1,15 +1,16 @@
 import redis
 import json
-from threading import Lock
 from celery import Celery, shared_task
 from .db_config import engine, Jobs, Tweets, Status, TweetStatus
-from sqlmodel import select, Session, SQLModel
+from sqlmodel import select, Session
 from .loader import load_data_from_content
 from .logger import logger
+import threading
 from .agent import AgentDownStream
 from .resilience import RateLimiter, CircuitBreaker, TokenBucket, DailyTokenBucket
 from .api_utils import system_prompt, GeminiOutput
 from .settings import env
+import asyncio
 import uuid
 
 celery_client = Celery(
@@ -36,14 +37,15 @@ def contains_filter(text):
 
 @shared_task()
 def agent_review(job_id:str):
-    """Celery task to review tweets using a resilient agent to call the Gemini API."""
+    asyncio.run(agent_review_coroutine(job_id))
+
+async def agent_review_coroutine(job_id:str):
+    lock = threading.Lock
     job_id_uuid = uuid.UUID(job_id)
-    rpm_bucket = TokenBucket(max_tokens=3, refill_rate=1, interval=60, lock=Lock)
-    # Daily limit: 10,000 requests per day
-    rpd_bucket = DailyTokenBucket(max_tokens=10000, lock=Lock)
+    rpm_bucket = TokenBucket(max_tokens=3, refill_rate=1, interval=60, lock=lock)
+    rpd_bucket = DailyTokenBucket(max_tokens=10000, lock=lock)
     rate_limiter = RateLimiter(rpm_bucket=rpm_bucket, rpd_bucket=rpd_bucket)
     
-    # Circuit breaker: Opens after 5 failures, waits 60s before retrying
     breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
 
     ai_agent = AgentDownStream(
@@ -52,7 +54,6 @@ def agent_review(job_id:str):
         api_key=env["gemini_api_key"]
     )
     
-    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
     with Session(engine) as db:
         pending_tweets = db.exec(
@@ -74,47 +75,97 @@ def agent_review(job_id:str):
         for i in range(0, len(pending_tweets), 100):
             gemini_batches.append(pending_tweets[i:i+100])
 
-        for i, batch in enumerate(gemini_batches):
-            logger.info(f"Job {job_id}: Processing Gemini batch {i+1}/{len(gemini_batches)}")
-            
-            # Prepare payload for Gemini API
-            tweet_contents = [{"id_str": t.tweet_id, "full_text": t.content} for t in batch]
-            payload = {
+        for idx in range(0,len(gemini_batches),3):
+            try:
+                payloads = []
+                batch_tweets_map = {}
+                formatted_batches = []
+                for batches in gemini_batches[idx:idx+3]:
+                    batch_tweet_formatted = []
+                    for tweet_ls in batches:
+                        batch_tweets_map[tweet_ls.tweet_id] = tweet_ls
+                        batch_tweet_formatted.append({"id_str": tweet_ls.tweet_id, "full_text": tweet_ls.content})
+                    formatted_batches.append(batch_tweet_formatted)
+                payloads = [ prep_payload(b) for b in formatted_batches]
+                resp = await batch_call(ai_agent,payloads)
+
+                for response in resp:
+                    if isinstance(response, Exception):
+                        raise response
+                    if not response.success:
+                        raise ValueError(f"API call failed with response code {response.response_code}: {response.err_message}")
+                    results = response.data['candidates'][0]['content']['parts'][0]['text']
+                    gemini_responses = json.loads(results)
+                    processed_count = 0
+                    flagged_count = 0
+                    for res in gemini_responses:
+                        tweet_to_update = batch_tweets_map.get(res['id_str'])
+                        if tweet_to_update:
+                            
+                            tweet_to_update.flagged = res['flagged']
+                            tweet_to_update.reason = res['reason']
+                            tweet_to_update.status = TweetStatus.flagged_llm if res['flagged'] else TweetStatus.safe
+                            db.add(tweet_to_update)
+                            processed_count +=1
+                            if res['flagged']:
+                                flagged_count +=1
+                    
+                    job = db.get(Jobs, job_id_uuid)
+                    if job:
+                        job.processed_count+=processed_count
+                        job.flagged_count += flagged_count
+                        db.add(job)
+                    db.commit()
+
+                    logger.info(f"Job {job_id}: Successfully processed and saved Gemini batch {idx // 3 + 1}.")
+
+            except Exception as e:
+                logger.error(f"Job {job_id}: Failed to process Gemini batch {i+1}. Error: {e}", exc_info=True)
+                db.rollback() 
+                job = db.get(Jobs, job_id_uuid)
+                if job and job.status != Status.completed:
+                    job.status = Status.failed
+                    job.error = f" Error: {e}"
+                    db.add(job)
+                    db.commit()
+                return
+    
+
+        job = db.get(Jobs, job_id_uuid)
+        if job and job.status != Status.completed:
+            job.status = Status.completed
+            db.add(job)
+            db.commit()
+
+
+                
+
+
+def prep_payload(tweet_contents):
+    payload = {
                 "contents": [{"parts": [{"text": f"{system_prompt}\nAudit these tweets:\n{json.dumps(tweet_contents)}"}]}],
                 "generationConfig": {
                     "responseMimeType": "application/json",
                     "responseSchema": {"type": "array", "items": GeminiOutput.model_json_schema()}
                 }
             }
-
-            try:
-                response = ai_agent.call(url=gemini_url, payload=payload)
-                logger.info(response)
-                if not response.success:
-                    raise ValueError(f"API call failed with response code {response.response_code}: {response.err_message}")
-                results = response.data['candidates'][0]['content']['parts'][0]['text']
-                gemini_responses = json.loads(results)
-
-                # Efficiently map tweets in the batch by their ID for quick updates
-                batch_tweets_map = {t.tweet_id: t for t in batch}
-
-                for res in gemini_responses:
-                    tweet_to_update = batch_tweets_map.get(res['id_str'])
-                    if tweet_to_update:
-                        tweet_to_update.flagged = res['flagged']
-                        tweet_to_update.reason = res['reason']
-                        tweet_to_update.status = TweetStatus.flagged_llm if res['flagged'] else TweetStatus.safe
-                        db.add(tweet_to_update)
-                
-                db.commit()
-                logger.info(f"Job {job_id}: Successfully processed and saved Gemini batch {i+1}.")
-
-            except Exception as e:
-                logger.error(f"Job {job_id}: Failed to process Gemini batch {i+1}. Error: {e}", exc_info=True)
-                # Optionally, you could add logic here to mark the job as failed.
+    return payload
 
 
 
+async def batch_call(ai_agent:AgentDownStream, batch:list) ->list :
+    
+    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    semaphore = asyncio.Semaphore(3) # three gemini call at a go
+    
+    async def call(tweet):
+        async with  semaphore:
+            response = await ai_agent.call(url=gemini_url, payload=tweet)
+            return response
+        
+    tasks = [ asyncio.create_task(call(tweet)) for tweet in batch]
+
+    return await asyncio.gather(*tasks,return_exceptions=True)
 
 @shared_task()
 def parse_analyze_path(job_id: str, file_path: str):
@@ -142,6 +193,7 @@ def parse_analyze_path(job_id: str, file_path: str):
                     content=tweet_content,
                     status=TweetStatus.flagged_filter if flagged else TweetStatus.pending_llm
                 ))
+               
             
             db.add_all(tweets_to_create)
             db.commit()

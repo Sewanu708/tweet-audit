@@ -3,9 +3,6 @@ import random
 from threading import Lock
 from datetime import datetime, timedelta, timezone
 from fastapi import status, HTTPException
-from functools import wraps
-from .logger import logger
-import httpx
 
 
 class DailyTokenBucket:
@@ -129,7 +126,7 @@ class CircuitBreaker:
             if self.state == 'half-open':
                 self.state = 'closed'
 
-    def call(self, fn, *args, **kwargs):
+    async def call(self, fn, *args, **kwargs):
         with self.lock:
             if self.state == 'open':
                 if (time.time() - self.last_failure_time) >= self.reset_timeout:
@@ -138,7 +135,7 @@ class CircuitBreaker:
                     raise CircuitBreakerOpenException("Circuit breaker is currently open.")
         
         try:
-            resp = fn(*args, **kwargs)
+            resp = await fn(*args, **kwargs)
             self.on_success()
             return resp
         except Exception as e:

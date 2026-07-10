@@ -1,4 +1,3 @@
-import asyncio
 import random
 import time
 from dataclasses import dataclass
@@ -58,12 +57,12 @@ def ag_retry(max_retry: int):
     """
     def decorator(func):
         @wraps(func)
-        def main_logic(self, *args, **kwargs):
+        async def main_logic(self, *args, **kwargs):
             attempts = 0
             while attempts <= max_retry:
                 try:
                     self.rate_limiter.allow_request()
-                    return self.breaker.call(func, self, *args, **kwargs)
+                    return await self.breaker.call(func, self, *args, **kwargs)
 
                 except RateLimitExceededException as e:
                     reset_time_str = e.headers.get("X-Rate-Limit-Reset")
@@ -103,13 +102,13 @@ class AgentDownStream:
         self.rate_limiter = rate_limiter
         self.breaker = breaker
         self.api_key = api_key
-        self.client = httpx.Client(
+        self.client = httpx.AsyncClient(
             headers={"Content-Type": "application/json"},
             params={"key": self.api_key}
         )
 
     @ag_retry(max_retry=3)
-    def call(self, url: str, payload: dict) -> AgentResponse:
-        response = self.client.post(url, json=payload, timeout=300)
-        response.raise_for_status()  # Will raise HTTPStatusError on 4xx/5xx
+    async def call(self, url: str, payload: dict) -> AgentResponse:
+        response = await self.client.post(url, json=payload, timeout=300)
+        response.raise_for_status()  
         return AgentResponse(success=True, response_code=response.status_code, data=response.json())
