@@ -1,38 +1,51 @@
 import redis
 import json
-from celery import Celery, shared_task
+from celery import Celery, shared_task, signals
 from .db_config import engine, Jobs, Tweets, Status, TweetStatus
 from sqlmodel import select, Session
 from .loader import load_data_from_content
+import time
 from .logger import logger
 import threading
 from .agent import AgentDownStream
 from .resilience import RateLimiter, CircuitBreaker, TokenBucket, DailyTokenBucket
-from .api_utils import system_prompt, GeminiOutput
+from .api_utils import system_prompt, GeminiOutput, criteria
 from .settings import env
 import asyncio
+from .redis_client import redis_cnn
 import uuid
+
+rpm_key = "rpm_bucket"
+rpd_key = "rpd_bucket"
+breaker_key = "circuit_breaker"
+redis_host=env.get('redis_host', 'localhost')
+redis_port=env.get('redis_port', 6379)
 
 celery_client = Celery(
     "tasks",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0"
+    broker=f"redis://{redis_host}:{redis_port}/0",
+    backend=f"redis://{redis_host}:{redis_port}/0"
 )
 
-sync_r = redis.Redis(host='localhost', port=6379, decode_responses=True)
-
-filter_words = ['tech','technology','blockchain']
-
+filter_words = criteria.get("forbidden_words",[])
 
 def rt_filter(text:str):
     return True if "RT" in text else False
 
-def contains_filter(text):
-    for element in filter_words:
-        if element in text:
-            return True
-    
-    return False
+
+
+@signals.worker_ready.connect
+def requeue_failed_jobs(sender, **kwargs):
+    with Session(engine) as db:
+        pending_jobs = db.exec(
+            select(Jobs).where(Jobs.status != Status.completed, Jobs.status != Status.processing, (time.time() - Jobs.updated_at )>= 300)
+        ).all()
+
+        if not pending_jobs:
+            return
+
+        for job in pending_jobs:
+            asyncio.run(agent_review_coroutine(str(job.id)))
 
 
 @shared_task()
@@ -42,11 +55,22 @@ def agent_review(job_id:str):
 async def agent_review_coroutine(job_id:str):
     lock = threading.Lock
     job_id_uuid = uuid.UUID(job_id)
-    rpm_bucket = TokenBucket(max_tokens=3, refill_rate=1, interval=60, lock=lock)
-    rpd_bucket = DailyTokenBucket(max_tokens=10000, lock=lock)
+    rpm_bucket = TokenBucket(max_tokens=3, refill_rate=1, interval=60, lock=lock, redis_client=redis_cnn, key=rpm_key)
+    rpd_bucket = DailyTokenBucket(max_tokens=10000, lock=lock, redis_client=redis_cnn, key=rpd_key)
     rate_limiter = RateLimiter(rpm_bucket=rpm_bucket, rpd_bucket=rpd_bucket)
     
-    breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
+    breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60, key=breaker_key,redis_client=redis_cnn)
+
+    # Fetch job-specific criteria
+    with Session(engine) as db:
+        job = db.get(Jobs, job_id_uuid)
+        if not job:
+            logger.error(f"Job {job_id} not found in DB for agent review.")
+            return
+        
+        job_criteria = job.criteria if job.criteria else criteria
+        dynamic_system_prompt = build_system_prompt(job_criteria)
+
 
     ai_agent = AgentDownStream(
         rate_limiter=rate_limiter,
@@ -86,7 +110,7 @@ async def agent_review_coroutine(job_id:str):
                         batch_tweets_map[tweet_ls.tweet_id] = tweet_ls
                         batch_tweet_formatted.append({"id_str": tweet_ls.tweet_id, "full_text": tweet_ls.content})
                     formatted_batches.append(batch_tweet_formatted)
-                payloads = [ prep_payload(b) for b in formatted_batches]
+                payloads = [ prep_payload(b, dynamic_system_prompt) for b in formatted_batches]
                 resp = await batch_call(ai_agent,payloads)
 
                 for response in resp:
@@ -141,9 +165,20 @@ async def agent_review_coroutine(job_id:str):
                 
 
 
-def prep_payload(tweet_contents):
+def build_system_prompt(crit: dict) -> str:
+    base_prompt = system_prompt
+    
+    crit_instructions = "\nAdditionally, pay close attention to the following job-specific criteria:"
+    if crit.get("professional_check"):
+        crit_instructions += "\n- Ensure tweets maintain a professional tone."
+    if crit.get("exclude_politics"):
+        crit_instructions += "\n- Flag any tweets that are political in nature."
+    
+    return base_prompt + crit_instructions
+
+def prep_payload(tweet_contents, dynamic_prompt: str):
     payload = {
-                "contents": [{"parts": [{"text": f"{system_prompt}\nAudit these tweets:\n{json.dumps(tweet_contents)}"}]}],
+                "contents": [{"parts": [{"text": f"{dynamic_prompt}\nAudit these tweets:\n{json.dumps(tweet_contents)}"}]}],
                 "generationConfig": {
                     "responseMimeType": "application/json",
                     "responseSchema": {"type": "array", "items": GeminiOutput.model_json_schema()}
@@ -155,12 +190,11 @@ def prep_payload(tweet_contents):
 
 async def batch_call(ai_agent:AgentDownStream, batch:list) ->list :
     
-    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-    semaphore = asyncio.Semaphore(3) # three gemini call at a go
+    semaphore = asyncio.Semaphore(3)
     
     async def call(tweet):
         async with  semaphore:
-            response = await ai_agent.call(url=gemini_url, payload=tweet)
+            response = await ai_agent.call(url=env['gemini_url'], payload=tweet)
             return response
         
     tasks = [ asyncio.create_task(call(tweet)) for tweet in batch]
@@ -174,6 +208,19 @@ def parse_analyze_path(job_id: str, file_path: str):
         tweets_data = load_data_from_content(file_path)
 
         with Session(engine) as db:
+            job = db.exec(select(Jobs).where(Jobs.id == job_id_uuid)).first()
+            if not job:
+                logger.error(f"Job {job_id} not found in DB.")
+                return
+            criteria = job.criteria if job.criteria else {}
+            forbidden_words = criteria.get("forbidden_words",filter_words)
+            
+            def contains_filter(text):
+                for element in forbidden_words:
+                    if element in text:
+                        return True
+                
+                return False
             
             tweets_to_create = []
             flag_counter = 0

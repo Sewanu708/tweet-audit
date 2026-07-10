@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Dict, Optional
+from .redis_client import redis_cnn
 
 import httpx
 from .logger import logger

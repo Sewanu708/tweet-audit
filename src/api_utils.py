@@ -36,24 +36,20 @@ async def upload_archive(file: UploadFile) -> tuple[str, str]:
 
     return job_id, file_path
 
-
+criteria =  {
+    "forbidden_words": ["crypto", "NFT", "hustlegrindset"],
+    "professional_check": True,
+    "tone": "respectful and thoughtful",
+    "exclude_politics": True
+}
 
 system_prompt = """
 
     You are a tweet auditor. Your job is to evaluate tweets and decide whether they should be flagged for deletion.
 
 Flag a tweet if it meets ANY of the following criteria:
-- Complains about a specific tool, language, or technology in a way that sounds bitter or unprofessional (e.g. "I hate CSS", "MySQL is trash")
-- Expresses frustration or negativity about work, colleagues, or the industry in a way that could embarrass a professional
 - Is a retweet with no original thought added — starts with "RT @"
-- Makes a hot take or controversial claim that could age poorly or be taken out of context
 - Is vague, low-effort, or adds no value (e.g. "honestly just happy the CI passed")
-
-Do NOT flag a tweet if it:
-- Shares a genuine insight, lesson learned, or technical observation
-- Is positive, neutral, or constructive in tone
-- Celebrates a milestone or achievement professionally
-
 You will receive a list of tweets. For each tweet, respond with a JSON array in this exact format:
 
 [
@@ -73,8 +69,6 @@ Rules:
 - Return ONLY the JSON array. No preamble, no explanation, no markdown code fences.
 - Every tweet in the input must have a corresponding entry in the output.
 - Keep reasons concise — one sentence maximum.
-- Preserve the order of tweets as given.
-
 """
 
 

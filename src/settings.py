@@ -28,6 +28,15 @@ def validate_config(data:dict):
     if data.get("gemini_api_key", None) is None:
         logger.error(f"gemini_api_key not found in your config.json:{data}", exc_info=False)
         raise Exception("gemini_api_key not found in your config.json")
+    if data.get("redis_host", None) is None:
+        logger.error(f"redis_host not found in your config.json:{data}", exc_info=False)
+        raise Exception("redis_host not found in your config.json")
+    if data.get("redis_port", None) is None:
+        logger.error(f"redis_port not found in your config.json:{data}", exc_info=False)
+        raise Exception("redis_port not found in your config.json")
+
+    data.setdefault("gemini_url", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")
+
     return data
 
 

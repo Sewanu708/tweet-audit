@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 from enum import Enum
 from sqlmodel import Session, create_engine, SQLModel, Field
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import JSON
 from typing import Any
 from datetime import datetime
 import uuid
@@ -43,6 +43,7 @@ class Jobs(SQLModel, table=True):
     processed_count:int = Field(default=0, nullable=False)
     total:int = Field(default=0, nullable=False)
     flagged_count:int = Field(default=0, nullable=False)
+    criteria:dict[str,Any] = Field(default={}, sa_type=JSON)
 
 
 class Tweets (SQLModel, table=True):
