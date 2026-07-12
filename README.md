@@ -20,24 +20,19 @@ Tweet Audit AI is a high-performance, asynchronous batch-processing tweet audit 
 ## Architectural Flow
 
 ```mermaid
-graph TD
-    UI[Frontend Dashboard / simple-ui] -->|API Requests: upload, status, download| API[FastAPI Server]
-    API -->|Save Files| Disk[Local Disk Storage / data/uploads]
-    API -->|Read/Write Jobs & Tweets| DB[(SQLite Database / database.db)]
-    API -->|Enqueue Jobs| Redis[(Redis Broker)]
+flowchart TD
+    UI[Frontend Dashboard] -->|1. Upload Archive & Criteria| API[FastAPI Server]
+    API -->|2. Write File| Disk[(Local Disk)]
+    API -->|3. Create Job| DB[(SQLite Database)]
+    API -->|4. Queue Task| Redis[(Redis Queue)]
     
-    subgraph Celery Worker Processes
-        Worker[Celery Worker]
-        Worker -->|Listen for Tasks| Redis
-        Worker -->|1. Parse & Filter| Load[Loader / loader.py]
-        Load -->|Read Uploads| Disk
-        Worker -->|Save Filtered Tweets| DB
-        
-        Worker -->|2. AI Audit Agent| Agent[AgentDownStream / agent.py]
-        Agent -->|Rate Limit & Circuit Breaker State| Redis
-        Agent -->|Batch Requests| Gemini[Gemini API / gemini-2.5-flash]
-        Agent -->|Update Tweet Audit Results| DB
-    end
+    Redis -->|5. Run Task| Worker[Celery Worker]
+    Worker -->|6. Read File| Disk
+    Worker -->|7. Fast Filter & Save| DB
+    Worker -->|8. Batch Audit| Gemini[Gemini LLM API]
+    
+    Gemini -->|9. Save AI Decisions| DB
+    UI -.->|10. Poll Status & Results| API
 ```
 
 ---
