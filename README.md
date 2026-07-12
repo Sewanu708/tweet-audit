@@ -1,143 +1,130 @@
-# tweet-audit
+# Tweet Audit AI
 
-A CLI tool that audits your Twitter/X data export, uses Google Gemini to flag tweets you may want to delete, and writes the results to a CSV — safely resumable at any point.
+Tweet Audit AI is a high-performance, asynchronous batch-processing tweet audit and deletion-review system. It consists of a FastAPI backend server, a Celery task queue, a SQLite database, and a sleek, interactive frontend dashboard. The system evaluates Twitter/X archive uploads, performs fast regex keyword filtering to discard/flag unwanted tweets immediately, and executes asynchronous batch reviews of the remaining tweets using the Gemini LLM.
 
----
+## Features
 
-## What it does
-
-1. Reads your `tweets.js` file (from a Twitter/X data export)
-2. Strips the JavaScript assignment prefix so the file can be parsed as JSON
-3. Sends tweets to Gemini in batches for AI-based content auditing
-4. Persists each result to a local SQLite database so no tweet is sent to Gemini twice
-5. Writes a final `tweets.csv` with three columns: `id_str`, `flagged`, `reason`
-
----
-
-## Architecture
-
-![Architecture Diagram](./architecture.png)
-
-
+- **Asynchronous Processing**: Heavy computations (ZIP extraction, parsing, and LLM auditing) are fully offloaded to Celery background workers to keep the API server responsive.
+- **Two-Stage Audit Filter**:
+  - **Stage 1 (Regex & Fast Scan)**: Immediate, low-cost pre-filtering based on custom forbidden words and retweets (`RT @`).
+  - **Stage 2 (AI-Powered Audit)**: Leverages Gemini (e.g., `gemini-2.5-flash`) for deep, context-aware audits against professional guidelines and political tone check.
+- **Resilience & Rate-Limiting**:
+  - **Token Bucket Limiting**: Enforces requests-per-minute (RPM) and requests-per-day (RPD) limits.
+  - **Circuit Breaker Pattern**: Automatically opens and fails fast during persistent downstream AI failures to avoid cascading issues.
+  - **Exponential Backoff Retries**: Automatically retries transient API failures with randomized jitter.
+  - **Startup Sweeper**: Scans and restarts tasks for interrupted/crashed jobs upon Celery worker startup to prevent orphaned processes.
+- **Sleek Web Interface**: Real-time progress tracking, customized auditing settings, interactive tweet audits ledger (categorized by Safe, Flagged, and All), and CSV export.
 
 ---
 
-## Project structure
+## Architectural Flow
 
+```mermaid
+graph TD
+    UI[Frontend Dashboard / simple-ui] -->|API Requests: upload, status, download| API[FastAPI Server]
+    API -->|Save Files| Disk[Local Disk Storage / data/uploads]
+    API -->|Read/Write Jobs & Tweets| DB[(SQLite Database / database.db)]
+    API -->|Enqueue Jobs| Redis[(Redis Broker)]
+    
+    subgraph Celery Worker Processes
+        Worker[Celery Worker]
+        Worker -->|Listen for Tasks| Redis
+        Worker -->|1. Parse & Filter| Load[Loader / loader.py]
+        Load -->|Read Uploads| Disk
+        Worker -->|Save Filtered Tweets| DB
+        
+        Worker -->|2. AI Audit Agent| Agent[AgentDownStream / agent.py]
+        Agent -->|Rate Limit & Circuit Breaker State| Redis
+        Agent -->|Batch Requests| Gemini[Gemini API / gemini-2.5-flash]
+        Agent -->|Update Tweet Audit Results| DB
+    end
 ```
-tweets-audit/
-├── src/
-│   ├── main.py           # Orchestrator: batching, rate limiting, CSV write
-│   ├── loader.py         # File reader and JSON parser
-│   ├── gemini_client.py  # Gemini API wrapper with retry logic
-│   ├── db_config.py      # SQLite idempotency store (SQLModel)
-│   ├── settings.py       # Config loader (reads config.json)
-│   └── logger.py         # Shared stdout logger
-├── config.json           # API keys (not committed — see setup below)
-├── tweets.js             # Your Twitter data export (not committed)
-├── TRADEOFFS.md          # Architecture and design decision notes
-└── README.md
-```
 
 ---
 
-## Setup
+## Process Flow
 
-### 1. Clone and create a virtual environment
+1. **Upload & Queueing**:
+   - A user uploads a Twitter archive file (`.zip` containing `tweets.js` or a raw `.js` file) with custom audit parameters (forbidden words, professional rules, target tone, political exclusion) from the frontend dashboard.
+   - FastAPI validates the file, registers a new job in SQLite, writes the uploaded file to the local disk, and dispatches a parsing task to the Celery worker via Redis.
+2. **Parsing & Early Keyword Scan**:
+   - The Celery worker extracts the tweets, running a regex pre-filter to instantly flag and isolate tweets matching forbidden keywords or retweets.
+   - Flagged tweets are set to a status of `flagged_filter`, while remaining tweets are marked as `pending_llm`. All tweets are committed to the SQLite database.
+3. **AI Audit Execution**:
+   - The worker triggers the `agent_review` task which gathers all `pending_llm` tweets, groups them into batches of 100, and fires parallel API requests (up to 3 concurrently) using an asynchronous semaphore.
+   - The downstream agent wrapper runs requests against the Gemini API, protected by a Redis-backed rate limiter (RPM/RPD token buckets) and a circuit breaker.
+   - On successful response, the database commits the classification (`safe` vs. `flagged_llm`) and Gemini's short explanation reason.
+4. **Monitoring & Download**:
+   - The web interface polls the API to display real-time progress bars, counters, and the detailed audited tweet ledger.
+   - Users can filter results and stream download the completed CSV audit report.
 
+---
+
+## Prerequisites
+
+- **Python**: Version `3.13` or newer.
+- **uv**: A fast Python package installer and manager.
+- **Redis**: A running instance on `localhost:6379` (used for Celery broker, rate limits, and circuit breaker persistence).
+- **Gemini API Key**: An active Google Gemini API Key.
+
+---
+
+## Installation Guide
+
+1. **Configure Environment Settings**:
+   Copy the example configuration file:
+   ```bash
+   cp config.example.json config.json
+   ```
+   Open `config.json` and insert your Gemini API Key:
+   ```json
+   {
+       "database_url": "sqlite:///database.db",
+       "gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+       "redis_host": "localhost",
+       "redis_port": 6379
+   }
+   ```
+
+2. **Start Redis**:
+   Make sure Redis is running. For example, via Docker:
+   ```bash
+   docker run -d -p 6379:6379 redis
+   ```
+
+3. **Install Dependencies**:
+   Initialize the virtual environment and install all packages using `uv`:
+   ```bash
+   uv sync
+   ```
+
+---
+
+## Startup Guide
+
+Run the main startup script:
 ```bash
-git clone <repo-url>
-cd tweets-audit
-python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
+uv run main.py
 ```
 
-### 2. Install dependencies
+### What this script does:
+- Starts the **Celery Worker** process (`celery -A src.celery_worker.celery_client worker --loglevel=info --pool=solo`) which acts as the asynchronous backend task executor.
+- Starts the **FastAPI Web Server** (`uvicorn src.main:app --port 8001`) which hosts the REST API endpoints.
+- Monitors both processes and gracefully shuts them down when you press `Ctrl+C`.
 
-```bash
-pip install google-genai sqlmodel pydantic
-```
-
-### 3. Create `config.json`
-
-Copy the example config and fill in your values:
-
-```bash
-cp config.example.json config.json
-```
-
-`config.json` structure:
-
-```json
-{
-    "database_url": "sqlite:///database.db"
-}
-```
-
-> The Gemini API key is **not** stored in config — it is entered securely at runtime via a terminal prompt.
-
-### 4. Add your Twitter data export
-
-Place your `tweets.js` file anywhere accessible. The tool will prompt you for the path at runtime.
+### Launching the Frontend:
+Because the UI is built with vanilla HTML/CSS/JavaScript, it does not require a build step. You can view the dashboard by:
+- Directly opening `simple-ui/index.html` in your browser.
+- Or running a simple local server:
+  ```bash
+  python -m http.server -d simple-ui 8000
+  ```
+  Then, navigate to `http://localhost:8000` in your web browser.
 
 ---
 
-## Running the tool
+## Architectural Decisions & Trade-offs
 
-```bash
-cd src
-python main.py
-```
+For a detailed analysis of the performance versus safety trade-offs, concurrency strategy, retry patterns, and error handling mechanisms, see [TRADEOFFS.md](TRADEOFFS.md).
 
-You will be prompted for:
-
-| Prompt | Example input |
-|--------|---------------|
-| File path | `tweets.js` or an absolute path |
-| Prefix to strip | `window.YTD.tweets.part0 = ` |
-| Gemini API key | (entered securely via getpass) |
-
-The tool will log progress to stdout and write results to `src/tweets.csv` when done.
-
----
-
-## Output
-
-`tweets.csv` contains one row per tweet:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id_str` | string | Twitter tweet ID |
-| `flagged` | bool | Whether Gemini flagged the tweet for deletion |
-| `reason` | string / null | One-sentence reason (null if not flagged) |
-
----
-
-## Flagging criteria
-
-Gemini flags a tweet if it:
-
-- Complains bitterly or unprofessionally about a tool, language, or technology
-- Expresses frustration about work, colleagues, or the industry
-- Is a retweet with no original thought (starts with `RT @`)
-- Makes a hot take or controversial claim that could age poorly
-- Is vague, low-effort, or adds no value
-
-It does **not** flag tweets that share genuine insights, are constructive in tone, or celebrate milestones professionally.
-
----
-
-## Resumability
-
-The SQLite database (`src/database.db`) stores every processed tweet. If the tool crashes or is interrupted mid-run, restart it with the same inputs — already-processed tweets are skipped automatically and no duplicate Gemini calls are made.
-
----
-
-## Design decisions
-
-See [TRADEOFFS.md](./TRADEOFFS.md) for a full explanation of:
-
-- Why async + semaphore instead of sequential or threaded
-- Why SQLite for idempotency
-- Batch size choices (1000 outer / 100 Gemini)
-- Retry strategy and error handling approach
+ 

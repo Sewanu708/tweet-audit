@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tweet Audit AI — Dashboard</title>
+  <!-- Google Fonts: Inter for text, Fira Code for IDs -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- External Stylesheet -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Top Header Bar -->
+    <header>
+      <div class="brand">
+        <div class="brand-logo">
+          <!-- Logo: A stylized Shield Check icon -->
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+          </svg>
+        </div>
+        <div class="brand-title">
+          <h1>Tweet Audit AI</h1>
+          <p>Local Idempotency Store & LLM Auditor</p>
+        </div>
+      </div>
+      
+      <div class="server-badge">
+        <div class="status-indicator" id="healthIndicator"></div>
+        <span id="healthLabel">Checking API...</span>
+      </div>
+    </header>
+
+    <div class="dashboard-grid">
+      
+      <!-- Control Column (Left) -->
+      <div class="control-col">
+        
+        <!-- Upload Card -->
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            Start New Audit Job
+          </div>
+          
+          <div class="field">
+            <label>Twitter/X Archive File</label>
+            <div class="upload-zone" id="dropZone">
+              <div class="upload-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
+              <div class="upload-text">Choose file or drag & drop</div>
+              <div class="upload-subtext">Accepts tweets.js, .js, or .zip archive</div>
+              <input type="file" id="fileInput" class="file-input" accept=".js,.zip,application/zip" />
+            </div>
+            
+            <div id="fileBadgeContainer"></div>
+          </div>
+
+          <!-- Custom Criteria Config Accordion -->
+          <div class="accordion-trigger" id="criteriaToggle">
+            <h3>Audit Criteria Configuration</h3>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+
+          <div class="accordion-content" id="criteriaContent">
+            <div style="padding-top: 15px;">
+              
+              <!-- Professional Switch -->
+              <div class="field toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-title">Professional Check</span>
+                  <span class="toggle-desc">Flag bitter/unprofessional work complaints</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="professionalCheck" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <!-- Exclude Politics Switch -->
+              <div class="field toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-title">Exclude Politics</span>
+                  <span class="toggle-desc">Flag hot takes and political opinions</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="excludePolitics" checked />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <!-- Tone Description Input -->
+              <div class="field">
+                <label for="toneInput">Target Tone Preference</label>
+                <input type="text" id="toneInput" value="respectful and thoughtful" placeholder="e.g. respectful and professional" />
+              </div>
+
+              <!-- Forbidden Words Tags Input -->
+              <div class="field">
+                <label>Forbidden Words/Phrases</label>
+                <div class="chip-input-container" id="chipContainer">
+                  <!-- Chips will be rendered here dynamically -->
+                  <input type="text" class="chip-text-input" id="chipTextInput" placeholder="Press Enter to add..." />
+                </div>
+                <span class="upload-subtext" style="display: block; margin-top: 6px;">
+                  Automatic exact match filtering before Gemini LLM pass.
+                </span>
+              </div>
+
+            </div>
+          </div>
+
+          <div style="margin-top: 25px;">
+            <button class="btn" type="button" id="submitBtn" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              Run Audit Engine
+            </button>
+          </div>
+        </div>
+
+        <!-- Tracking Card -->
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Track Existing Job
+          </div>
+          <div class="field">
+            <label for="trackJobId">Job UUID</label>
+            <div class="tracking-search">
+              <input type="text" id="trackJobId" placeholder="f8bf05d6-a008-4746-bc2c-ef0941ffcf71" />
+              <button class="btn btn-secondary" type="button" id="trackBtn">
+                Track
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Detail/Results Column (Right) -->
+      <div class="detail-col">
+        
+        <!-- Live Audit Progress Card -->
+        <div class="card" id="progressCard" style="display: none;">
+          <div class="card-title" style="margin-bottom: 12px; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              Job Progress Overview
+            </div>
+            
+            <div id="jobStatusBadge">
+              <!-- Rendered status badge -->
+            </div>
+          </div>
+
+          <div class="copy-row">
+            <span class="copy-val" id="jobIdLabel">JOB ID: ...</span>
+            <button class="copy-btn" id="copyJobIdBtn" title="Copy Job ID">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+
+          <div class="progress-section">
+            <div class="progress-label-row">
+              <span id="progressLabelText">Audit progress</span>
+              <span id="progressPercentText">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progressFillBar"></div>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-val" id="statTotal">0</div>
+              <div class="stat-lbl">Total Tweets</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-val" id="statProcessed">0</div>
+              <div class="stat-lbl">Processed</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-val flagged" id="statFlagged">0</div>
+              <div class="stat-lbl">Flagged</div>
+            </div>
+          </div>
+
+          <div id="jobErrorAlert" style="display: none;">
+            <!-- Rendered error alert -->
+          </div>
+        </div>
+
+        <!-- Audit Results Card -->
+        <div class="card" id="resultsCard" style="display: none;">
+          <div class="results-pane">
+            <div class="card-title" style="margin-bottom: 12px; justify-content: space-between;">
+              <span>Audited Tweets Ledger</span>
+              <button class="btn btn-secondary btn-small" id="csvBtn" style="width: auto;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Export CSV
+              </button>
+            </div>
+
+            <!-- Toolbar filters and keyword searches -->
+            <div class="results-toolbar">
+              <div class="tabs">
+                <button class="tab-btn active" data-tab="all" id="tabAll">All (0)</button>
+                <button class="tab-btn" data-tab="flagged" id="tabFlagged">Flagged (0)</button>
+                <button class="tab-btn" data-tab="safe" id="tabSafe">Safe (0)</button>
+              </div>
+              <div class="filter-actions">
+                <div class="results-search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <input type="text" id="resultSearchInput" placeholder="Filter by keyword..." />
+                </div>
+              </div>
+            </div>
+
+            <div class="results-list" id="resultsList">
+              <!-- Tweet cards will be loaded here dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty Welcome State -->
+        <div class="card" id="emptyCard">
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="9" x2="15" y2="9"></line>
+              <line x1="9" y1="13" x2="15" y2="13"></line>
+              <line x1="9" y1="17" x2="13" y2="17"></line>
+            </svg>
+            <p>No active audit job selected.</p>
+            <p style="font-weight: 400; font-size: 0.8rem; margin-top: 6px; color: var(--text-dimmed);">
+              Upload a tweets data file or enter a Job UUID to track progress and download your report.
+            </p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- External Script -->
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,54 +1,60 @@
-Architecture: Loader → Idempotency Check → Gemini Client → CSV Writer
+## Architecture Choices
 
+This system serves as a miniature version of what a large-scale file processing and audit system might look like architecturally.
 
-![Architecture Diagram](./architecture.png)
+### Core Components
+*   **FastAPI Server**: A single-threaded server that handles incoming requests. Its primary role is to offload heavy tasks, keeping the event loop free to respond to other requests instantly.
+*   **Celery Worker**: Handles all heavy background operations, including file parsing and AI-based analysis.
+*   **Local Disk Storage**: For this miniature version, uploaded files are saved directly to disk. In a production system, this would be an object store (like S3) to decouple storage from the application. The server would only receive a file ID.
 
+### Worker Responsibilities
+1.  **Parsing & Filtering Worker**:
+    *   Fetches the uploaded file, parses its content, and performs an initial analysis.
+    *   Uses simple regex checks based on job criteria to flag tweets.
+    *   Flagged tweets are excluded from AI analysis to reduce cost and processing time.
+2.  **AI Agent Worker**:
+    *   Receives unflagged tweets that require deeper analysis.
+    *   Calls the external AI agent (Gemini) to perform the audit.
+    *   Updates the status of each tweet and the overall job in the database.
 
-### Why this architecture?
+### Database and Schema
+*   **Database**: A simple in-memory SQLite database is used for speed and simplicity, suitable for this project's scale.
+*   **Schema**:
+    *   **Jobs Table**: Tracks the overall status of each upload and analysis job (e.g., `processing`, `completed`, `failed`).
+    *   **Tweets Table**: Stores individual tweet content, its flag status, and its processing status (e.g., `pending_llm`, `safe`, `flagged_llm`). This provides a clear audit trail for each tweet.
 
-#### Duplicate Calls
+---
 
-This architecture, with the idempotency layer, prevents duplicate calls to the Gemini client. Every call to Gemini matters because tokens are consumed. As such, repeating calls can be expensive. This architecture eliminates that possibility.
+## Concurrency Strategy
 
-#### Proper Batching and Asynchronous Tasks
+The system uses a **fully asynchronous, batch-processing** model. This approach trades some simplicity for significant gains in speed and cost-effectiveness.
 
-Gemini is very strict about context length. As such, we avoid overloading it with large amounts of data.
+*   **Async Batching**: Tweets are grouped into batches before being sent to the AI.
+*   **Semaphore Lock**: A semaphore is used to make concurrent calls to the AI API, which dramatically speeds up the analysis of a batch.
 
-With this architecture, a proper batching system was implemented, with each Gemini client call processing a batch of 100 tweets as payload (spread across 3 clients within a semaphore lock).
+---
 
-To make the process faster while taking the Gemini rate limiter into account, I ensured that calls to the Gemini client were concurrent, since this is an I/O-bound task. I opted for a fully asynchronous pattern, with coroutine functions handling the workload, ensuring proper resource utilization while still running on a single thread.
+## Error Handling and Resilience
 
-To avoid overwhelming the Gemini client with too many requests, a semaphore lock was used to ensure that only 3 requests could be made within a one-minute window. Coupled with the lock was a 15-second buffer to allow sufficient time for rate limits to reset on the Gemini side.
+Given the multiple components (workers, database, downstream AI), a robust error-handling strategy is crucial.
 
-**Concurrency Strategy:** Batching + Full Async
+*   **Startup Sweeper**: On worker startup, a "sweeper" function queries the database for jobs or tweets that were stuck in a processing state (e.g., due to a crash). It re-queues them for AI review, ensuring no data is lost.
+*   **Rate Limiting**: The `AgentDownStream` service implements rate limiters for both requests-per-minute and requests-per-day to avoid hitting the AI provider's limits.
+*   **Circuit Breaker**: This pattern prevents the system from repeatedly calling the AI agent if it's down or returning errors. It "opens" the circuit after a threshold of failures and only allows periodic retries, preventing cascading failures.
+*   **Intelligent Retries**: A decorator on the HTTP call to the AI agent manages retries. It intelligently handles different error types:
+    *   **Transient Errors**: Retries after a given backoff time automatically.
+    *   **Deterministic Errors**: Fails fast without retrying.
+*   **Persistent State**: The state of the circuit breaker and rate limiters is persisted in Redis. This ensures that even if a worker restarts, it won't immediately overwhelm the downstream API.
 
-Going with a sequential approach would only slow things down. As such, I opted for a proper batching system (to avoid overloading Gemini) combined with a fully asynchronous execution pattern.
+---
 
-**Why?**
+## Performance vs. Safety Trade-offs
 
-* Batching reduces the payload sent to Gemini per request, ensuring that each request remains within the model's context limits and preventing unnecessary overload.
-* The async pattern allows us to fully utilize available resources while waiting for responses from Gemini.
+### Performance Optimizations
+*   **Task Offloading**: All heavy lifting is relegated to background Celery workers, keeping the API responsive.
+*   **Early Filtering**: A simple, fast validation layer flags many tweets without needing the expensive AI agent.
+*   **Concurrent API Calls**: A semaphore allows for parallel processing of tweets within a batch, maximizing throughput.
 
-#### DB Type
-
-I chose SQLite because it is file-based. The reason for this is that the project's output is also a file. Additionally, SQLite is lightweight and very easy to set up.
-
-#### Error Handling
-
-A proper retry mechanism with exponential backoff was implemented for retryable and transient errors. Other errors were properly logged for the client.
-
-Other failure scenarios, such as server crashes or file-not-found errors, were also handled appropriately. For instance, the idempotency layer makes the system safe to retry after a server crash because the client can be assured that duplicate Gemini calls will not be made, which could otherwise become very costly.
-
-### Performance vs Safety Trade-offs
-
-The semaphore lock was the main performance-versus-safety trade-off decision I had to make.
-
-From a performance perspective, requests could potentially be completed within a few minutes or even seconds. However, I needed to ensure that we did not exceed Gemini's context limits or violate its rate limits. Failing to do so could result in excessive token consumption and unnecessary costs.
-
-### Why I Chose This Language
-
-#### Python
-
-Although Python has its limitations, particularly around asynchronous execution and multithreading, our approach operates primarily on a single thread, meaning the GIL does not significantly impact performance in this use case.
-
-Additionally, Python is well-suited for this type of project because of its strong ecosystem, rapid development speed, and excellent support for asynchronous I/O workloads.
+### Safety Measures
+*   **Resilience Layer**: The combination of rate limiters, circuit breakers, and intelligent retries makes the system robust, even if it adds a small amount of overhead.
+*   **Concurrency Bottleneck**: While the semaphore speeds things up, it also means that if one API call in a batch hangs or fails slowly, the entire batch is delayed until that single request resolves. This is a trade-off for ensuring all data in a batch is processed together.

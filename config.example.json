@@ -1,3 +1,6 @@
 {
-    "database_url": "sqlite:///database.db"
+    "database_url": "sqlite:///database.db",
+    "gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "redis_host": "localhost",
+    "redis_port": 6379
 }
